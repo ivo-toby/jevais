@@ -1,6 +1,6 @@
 {
   "name": "jevais",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Small semantic functions on top of the TypeSafe Jev API: ifjev, findMeaning, partitionMeaning, rankMeaning, changedMeaning.",
   "keywords": [
     "jev",
