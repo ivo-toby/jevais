@@ -110,6 +110,28 @@ if (await changedMeaning(oldConfig, newConfig, 'deployment requirements changed'
 Like `partitionMeaning`, it accepts `threshold` through the options object
 (default `0.85`).
 
+## askNoul / askScore
+
+The raw JEV primitives behind the functions above. `askNoul` resolves the
+probability itself (P(yes) in [0, 1]); `askScore` resolves the full Score
+answer (`score`, `confidence`, `legend`, `probabilities`). Use these when you
+need the number, not just the threshold decision.
+
+```ts
+import { askNoul, askScore } from 'jevais';
+
+const p = await askNoul('Is this a bug?', 'I think this is an error');
+if (p >= 0.4) {
+  // probable
+}
+
+const answer = await askScore('Rate this item.', ['low', 'high'], feedbackText);
+console.log(answer.score, answer.probabilities);
+```
+
+`askNoul`/`askScore` take the same per-call options as `ifjev` (`apiKey`,
+`model`, `timeoutMs`, `retries`).
+
 ## Errors
 
 All failures throw `JevError`, which carries the HTTP `status` (when the failure
