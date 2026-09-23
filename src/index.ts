@@ -1,4 +1,4 @@
-export { JevError, configure } from './client.js';
+export { JevError, askNoul, askScore, configure } from './client.js';
 export { changedMeaning, findMeaning, ifjev, partitionMeaning, rankMeaning } from './meaning.js';
 export type { PartitionResult } from './meaning.js';
 export type {
