@@ -1,5 +1,5 @@
-/** TypeSafe Jev systemone endpoint. */
-export const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
+/** Default TypeSafe API base URL. */
+export const JEV_BASE_URL = 'https://api.typesafe.ai';
 
 /** Default model id. */
 export const DEFAULT_MODEL = 'jev-latest';
@@ -7,7 +7,7 @@ export const DEFAULT_MODEL = 'jev-latest';
 /** Default per-attempt request timeout in milliseconds. */
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
-/** Default number of 429/529 retries after the first attempt. */
+/** Default number of 429/503/529 retries after the first attempt. */
 export const DEFAULT_RETRIES = 3;
 
 /** Default yes threshold: p >= threshold counts as yes. */
@@ -69,11 +69,13 @@ export interface JevResponse {
 export interface JevaisOptions {
   /** TypeSafe API key; falls back to configure(), then TYPESAFE_API_KEY. */
   apiKey?: string;
+  /** API base URL without `/v1/systemone`; configure() and TYPESAFE_BASE_URL are fallbacks. */
+  baseUrl?: string;
   /** Model id. Default: "jev-latest". */
   model?: string;
   /** Per-attempt request timeout in ms. Default: 30000. */
   timeoutMs?: number;
-  /** 429/529 retries after the first attempt. Default: 3. */
+  /** 429/503/529 retries after the first attempt. Default: 3. */
   retries?: number;
 }
 
