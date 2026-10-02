@@ -2,7 +2,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_RETRIES,
   DEFAULT_TIMEOUT_MS,
-  JEV_ENDPOINT,
+  JEV_BASE_URL,
   type JevResponse,
   type JevaisOptions,
   type NoulQuestion,
@@ -10,8 +10,8 @@ import {
   type ScoreQuestion,
 } from './types.js';
 
-/** HTTP statuses that are retried with backoff (rate limit / overloaded). */
-const RETRYABLE_STATUSES: readonly number[] = [429, 529];
+/** HTTP statuses that are retried with backoff (rate limit / overloaded / queue full). */
+const RETRYABLE_STATUSES: readonly number[] = [429, 503, 529];
 
 /** First backoff delay; doubles per retry, capped at MAX_RETRY_DELAY_MS. */
 const BASE_RETRY_DELAY_MS = 500;
@@ -48,11 +48,13 @@ const moduleConfig: JevaisOptions = {};
 
 /**
  * Set module-level defaults; later calls merge over earlier ones and
- * per-call options still take precedence. When no apiKey is set anywhere,
- * the TYPESAFE_API_KEY environment variable is used.
+ * per-call options still take precedence. `baseUrl` falls back to
+ * `TYPESAFE_BASE_URL` and then the TypeSafe API URL. When no apiKey is set
+ * anywhere, the `TYPESAFE_API_KEY` environment variable is used.
  */
 export function configure(options: JevaisOptions = {}): void {
   if (options.apiKey !== undefined) moduleConfig.apiKey = options.apiKey;
+  if (options.baseUrl !== undefined) moduleConfig.baseUrl = options.baseUrl;
   if (options.model !== undefined) moduleConfig.model = options.model;
   if (options.timeoutMs !== undefined) moduleConfig.timeoutMs = options.timeoutMs;
   if (options.retries !== undefined) moduleConfig.retries = options.retries;
@@ -60,6 +62,7 @@ export function configure(options: JevaisOptions = {}): void {
 
 interface ResolvedConfig {
   apiKey: string;
+  baseUrl: string;
   model: string;
   timeoutMs: number;
   retries: number;
@@ -75,6 +78,8 @@ function resolveConfig(overrides?: JevaisOptions): ResolvedConfig {
   }
   return {
     apiKey,
+    baseUrl:
+      overrides?.baseUrl ?? moduleConfig.baseUrl ?? (process.env.TYPESAFE_BASE_URL || JEV_BASE_URL),
     model: overrides?.model ?? moduleConfig.model ?? DEFAULT_MODEL,
     timeoutMs: overrides?.timeoutMs ?? moduleConfig.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     retries: overrides?.retries ?? moduleConfig.retries ?? DEFAULT_RETRIES,
@@ -83,7 +88,7 @@ function resolveConfig(overrides?: JevaisOptions): ResolvedConfig {
 
 /**
  * POST one question set over the shared `state` and return the validated
- * response. Retries 429/529 (up to `retries` times, exponential backoff,
+ * response. Retries 429/503/529 (up to `retries` times, exponential backoff,
  * honoring numeric Retry-After in seconds); every other failure throws a
  * JevError carrying status and/or a raw body snippet.
  */
@@ -93,11 +98,12 @@ async function postJev(
   config: ResolvedConfig,
 ): Promise<JevResponse> {
   const payload = JSON.stringify({ state, model: config.model, questions });
+  const endpoint = `${config.baseUrl.replace(/\/+$/, '')}/v1/systemone`;
   let retry = 0;
   for (;;) {
     let response: Response;
     try {
-      response = await fetch(JEV_ENDPOINT, {
+      response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${config.apiKey}`,

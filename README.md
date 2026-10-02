@@ -28,12 +28,35 @@ configure({ apiKey: process.env.TYPESAFE_API_KEY });
 Every function also accepts these options per call (per-call > `configure()` >
 defaults):
 
-| option      | default            | meaning                                                            |
-| ----------- | ------------------ | ------------------------------------------------------------------ |
-| `apiKey`    | `TYPESAFE_API_KEY` | TypeSafe API key                                                   |
-| `model`     | `"jev-latest"`     | model id sent with every request                                   |
-| `timeoutMs` | `30000`            | per-attempt request timeout                                        |
-| `retries`   | `3`                | retries on HTTP 429/529, exponential backoff, honors `Retry-After` |
+| option      | default                                          | meaning                                                                |
+| ----------- | ------------------------------------------------ | ---------------------------------------------------------------------- |
+| `apiKey`    | `TYPESAFE_API_KEY`                               | TypeSafe API key                                                       |
+| `baseUrl`   | `TYPESAFE_BASE_URL` or `https://api.typesafe.ai` | API base URL; `/v1/systemone` is appended                              |
+| `model`     | `"jev-latest"`                                   | model id sent with every request                                       |
+| `timeoutMs` | `30000`                                          | per-attempt request timeout                                            |
+| `retries`   | `3`                                              | retries on HTTP 429/503/529, exponential backoff, honors `Retry-After` |
+
+For `baseUrl`, precedence is per-call option > `configure()` >
+`TYPESAFE_BASE_URL` > `https://api.typesafe.ai`.
+
+## Ollaya
+
+[Ollaya](https://ollaya.dev/) implements the TypeSafe `/v1/systemone` API.
+Set its base URL with `TYPESAFE_BASE_URL` or the `baseUrl` option. Choose a
+model available on your Ollaya server; `jev-latest` is the default for the
+hosted TypeSafe API, not an Ollaya model.
+
+```ts
+import { configure, ifjev } from 'jevais';
+
+configure({ apiKey: 'local', model: 'winnow:e4b' });
+const isRefund = await ifjev('the customer requests a refund', customerMessage, 0.85, {
+  baseUrl: 'http://localhost:11435',
+});
+```
+
+If Ollaya is configured with `OLLAYA_API_KEY`, pass the matching key instead
+of `local`.
 
 ## ifjev
 
@@ -149,8 +172,9 @@ try {
 }
 ```
 
-HTTP 429/529 are retried up to `retries` times with exponential backoff (honoring
-`Retry-After` when present); 401, 422, and everything else throw immediately.
+HTTP 429/503/529 are retried up to `retries` times with exponential backoff
+(honoring numeric `Retry-After` when present); 401, 422, and other statuses
+throw immediately.
 Empty item arrays resolve with an empty result without calling the API.
 
 ## Notes

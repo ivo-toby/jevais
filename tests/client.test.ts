@@ -88,6 +88,20 @@ describe('API key resolution', () => {
     await expect(ifjev('user reacts angry', 'state')).resolves.toBe(true);
     expect(authOf(calls[0])).toBe('Bearer env-key');
   });
+
+  it('uses TYPESAFE_BASE_URL and lets a per-call baseUrl override it', async () => {
+    vi.stubEnv('TYPESAFE_API_KEY', 'local');
+    vi.stubEnv('TYPESAFE_BASE_URL', 'http://localhost:11435///');
+    const calls = stubFetch((call) => noulOk(call, 0.9));
+
+    await ifjev('q', 'state');
+    await ifjev('q', 'state', 0.85, { baseUrl: 'http://per-call:11435/' });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      'http://localhost:11435/v1/systemone',
+      'http://per-call:11435/v1/systemone',
+    ]);
+  });
 });
 
 describe('request failures', () => {
@@ -231,7 +245,7 @@ describe('request failures', () => {
   });
 });
 
-describe('retries on 429/529', () => {
+describe('retries on 429/503/529', () => {
   it('retries a 429 honoring Retry-After, then resolves on success', async () => {
     vi.useFakeTimers();
     let attempts = 0;
@@ -266,6 +280,46 @@ describe('retries on 429/529', () => {
     expect(attempts).toBe(2);
   });
 
+  it('retries Ollaya 503 queue-full responses and honors Retry-After', async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    const calls = stubFetch((call) => {
+      attempts += 1;
+      return attempts === 1
+        ? new Response('queue full', { status: 503, headers: { 'Retry-After': '1' } })
+        : noulOk(call, 0.9);
+    });
+
+    const result = ifjev('q', 's', 0.85, { apiKey: API_KEY }).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await vi.advanceTimersByTimeAsync(999);
+    expect(attempts).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(result).resolves.toEqual({ value: true });
+    expect(calls).toHaveLength(2);
+  });
+
+  it('throws a JevError with 503 status and body when Ollaya retries are exhausted', async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    stubFetch(() => {
+      attempts += 1;
+      return new Response('queue full', { status: 503, headers: { 'Retry-After': '0' } });
+    });
+
+    const rejection = rejectionOf(ifjev('q', 's', 0.85, { apiKey: API_KEY, retries: 1 }));
+    await vi.advanceTimersByTimeAsync(0);
+    const error = await rejection;
+
+    expect(error).toBeInstanceOf(JevError);
+    expect((error as JevError).status).toBe(503);
+    expect((error as JevError).body).toBe('queue full');
+    expect(attempts).toBe(2);
+  });
+
   it('throws a JevError with the status after the configured retries are exhausted', async () => {
     vi.useFakeTimers();
     let attempts = 0;
@@ -287,29 +341,98 @@ describe('retries on 429/529', () => {
   });
 });
 
+describe('Ollaya-compatible responses', () => {
+  it('accepts a canonical model name in a Noul response', async () => {
+    const calls = stubFetch((call) => {
+      const id = Object.keys(sentBody(call).questions)[0];
+      return okResponse({
+        model: 'laya:en',
+        answers: { [id]: { type: 'noul', noul: 0.91 } },
+        usage: { input_tokens: 10, output_tokens: 0 },
+      });
+    });
+
+    await expect(
+      ifjev('refund requested', 'state', 0.85, {
+        apiKey: 'local',
+        model: 'laya',
+        baseUrl: 'http://localhost:11435',
+      }),
+    ).resolves.toBe(true);
+    expect(calls[0].url).toBe('http://localhost:11435/v1/systemone');
+    expect(sentBody(calls[0]).model).toBe('laya');
+  });
+
+  it('accepts an Ollaya-compatible Score response', async () => {
+    const calls = stubFetch((call) => {
+      const id = Object.keys(sentBody(call).questions)[0];
+      return okResponse({
+        model: 'laya:en',
+        answers: {
+          [id]: {
+            type: 'score',
+            score: 0.25,
+            confidence: 0.5,
+            legend: { '0': 'low', '1': 'high' },
+            probabilities: { '0': 0.75, '1': 0.25 },
+          },
+        },
+        usage: { input_tokens: 10, output_tokens: 0 },
+      });
+    });
+
+    await expect(
+      rankMeaning(['item'], ['low', 'high'], {
+        apiKey: 'local',
+        model: 'laya',
+        baseUrl: 'http://localhost:11435',
+      }),
+    ).resolves.toEqual(['item']);
+    expect(calls[0].url).toBe('http://localhost:11435/v1/systemone');
+    expect(sentBody(calls[0]).model).toBe('laya');
+  });
+});
+
 describe('configure', () => {
-  it('uses module-level apiKey and model, with per-call options taking precedence', async () => {
+  it('uses module-level apiKey, model, and baseUrl, with per-call options taking precedence', async () => {
     vi.stubEnv('TYPESAFE_API_KEY', 'env-key');
-    configure({ apiKey: 'configured-key', model: 'jev-configured' });
+    vi.stubEnv('TYPESAFE_BASE_URL', 'http://env:11435');
+    configure({
+      apiKey: 'configured-key',
+      model: 'jev-configured',
+      baseUrl: 'http://configured:11435/',
+    });
     const calls = stubFetch((call) => noulOk(call, 0.9));
 
-    await ifjev('q', 's', 0.85, { apiKey: 'per-call-key' });
+    await ifjev('q', 's', 0.85, {
+      apiKey: 'per-call-key',
+      baseUrl: 'http://per-call:11435///',
+    });
     await ifjev('q', 's', 0.85, { model: 'jev-per-call' });
     await ifjev('q', 's');
 
     expect(authOf(calls[0])).toBe('Bearer per-call-key');
     expect(sentBody(calls[0]).model).toBe('jev-configured');
+    expect(calls[0].url).toBe('http://per-call:11435/v1/systemone');
     expect(authOf(calls[1])).toBe('Bearer configured-key');
     expect(sentBody(calls[1]).model).toBe('jev-per-call');
+    expect(calls[1].url).toBe('http://configured:11435/v1/systemone');
     expect(authOf(calls[2])).toBe('Bearer configured-key');
     expect(sentBody(calls[2]).model).toBe('jev-configured');
+    expect(calls[2].url).toBe('http://configured:11435/v1/systemone');
   });
 
-  it('later configure calls merge over earlier ones', async () => {
-    configure({ apiKey: 'configured-key', model: 'jev-later' });
+  it('later configure calls preserve an earlier baseUrl', async () => {
+    configure({
+      apiKey: 'configured-key',
+      model: 'jev-initial',
+      baseUrl: 'http://configured:11435',
+    });
+    configure({ model: 'jev-later' });
     const calls = stubFetch((call) => noulOk(call, 0.9));
     await ifjev('q', 's');
     expect(authOf(calls[0])).toBe('Bearer configured-key');
     expect(sentBody(calls[0]).model).toBe('jev-later');
+    expect(calls[0].url).toBe('http://configured:11435/v1/systemone');
   });
 });

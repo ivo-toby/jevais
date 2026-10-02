@@ -70,6 +70,7 @@ afterEach(() => {
 
 describe('ifjev', () => {
   it('resolves true when P(yes) >= threshold, sending one noul question over the state', async () => {
+    vi.stubEnv('TYPESAFE_BASE_URL', '');
     const calls = stubFetch((call) => noulOk(call, 0.9));
     const result = await ifjev('user reacts angry', { text: 'ugh, whatever' }, 0.85, {
       apiKey: API_KEY,
